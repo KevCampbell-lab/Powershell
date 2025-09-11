@@ -3,12 +3,11 @@ $ouName = Read-Host "Enter NEW OU name (e.g., IT)" `
 $domain = (Get-ADDomain).DistinguishedName
 
 #User input new OU name (from custom function)
-
 $ouDN = Create-NewOU -name $ouName -ParentDN $domain
 
 #Stop creating new OU if it exists
 if (-not (Get-ADOrganizationalUnit -Identity $ouDN -EA SilentlyContinue)) {
-  New-ADOrganizationalUnit -Name $ouName -Path $domain -ProtectedFromAccidentalDeletion:$false -EA Stop
+  New-ADOrganizationalUnit -Name $ouName -Path ("OU=$ouName," + $domain) -ProtectedFromAccidentalDeletion:$false -EA Stop
 }
 
 #Sets the User Password and directs script to txt file for names
@@ -39,7 +38,6 @@ foreach ($f in $rows){
         -Name "$first $last" `
         -EmployeeID $username `
         -AccountPassword $UserPassword `
-        -PasswordNeverExpires $true `
         -ChangePasswordAtLogon $true `
         -Path $ouDN `
         -Enabled $true `
