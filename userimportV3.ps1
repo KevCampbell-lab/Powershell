@@ -1,54 +1,59 @@
-﻿#Enter new or existing OU name
+#Enter new or existing OU name
 $ouName = Read-Host "Enter NEW OU name (e.g., IT)" `
 $domain = (Get-ADDomain).DistinguishedName
-Create-NewOU -name $ouName -ParentDN $domain
+
+#User input new OU name (from custom function)
+
+$ouDN = Create-NewOU -name $ouName -ParentDN $domain
+
+#Stop creating new OU if it exists
+if (-not (Get-ADOrganizationalUnit -Identity $ouDN -EA SilentlyContinue)) {
+  New-ADOrganizationalUnit -Name $ouName -Path $domain -ProtectedFromAccidentalDeletion:$false -EA Stop
+}
 
 #Sets the User Password and directs script to txt file for names
-$UserPassword = "Password1"
 $UserPassword = ConvertTo-SecureString $UserPassword -AsPlainText -Force
 
-#Import file path
+#Import CSV Rows
 $FilePath = Pick-FilePath
-Import-Csv $FilePath 
+$rows = Import-Csv $FilePath 
 
-
-#Checks to see if OU (Line #2) exists, if not then new OU will be created then prompted "OU $ouName created in $domain" 
-IF(-not (Get-ADOrganizationalUnit -LDAPFilter "$ouName" -SearchBase $domain -ErrorAction SilentlyContinue)) {
-   New-ADOrganizationalUnit -Name $ouName -path $domain -ProtectedFromAccidentalDeletion $false
-   Write-Host "OU $ouName created in $domain " -BackgroundColor Green -ForegroundColor Black 
-}
+#Counters
+$ok = 0; $total = 0
 
 #Loops the usernames to create a AD user with the names from the txt file
-foreach ($f in $Filepath){
+foreach ($f in $rows){
+    try {
     $first = $f.FirstName
     $last =  $f.LastName
-    #$username = $first + "." + $last
+    if (-not $first -or -not $last) { throw "Missing First/Last Name in CSV row."} # Will report failure by each row
     $username = "$($first).$($last)"
-    $email = "$($username)@$($maildomain)"
-    Write-Host "Creating User: $($username)" -BackgroundColor Black -ForegroundColor Yellow
+    $total++ #counter for the summary
 
-    New-ADUser -AccountPassword $UserPassword `
-               -GivenName $first `
-               -Surname $last `
-               -DisplayName $username `
-               -Name $username `
-               -EmployeeID $username `
-               -PasswordNeverExpires $true `
-               -Path ("$ouName"+(Get-ADDomain).DistinguishedName) `
-               -Enabled $true 
-} 
-$ok = 0; $total = 0
-$rows | ForEach-Object {
-    try {
-        $total++
-        New-ADUser @params -ErrorAction Stop
-        $ok++
-        } catch { }
+    New-ADUser `
+        -SamAccountName $username `
+        -UserPrincipalName "$username@$upnSuffix" `
+        -GivenName $first `
+        -Surname $last `
+        -DisplayName "$first $last" `
+        -Name "$first $last" `
+        -EmployeeID $username `
+        -AccountPassword $UserPassword `
+        -PasswordNeverExpires $true `
+        -ChangePasswordAtLogon $true `
+        -Path $ouDN `
+        -Enabled $true `
+        -ErrorAction Stop
+$ok++ #counter of completed users in the summary
+         Write-Host "Creating User: $username" -BackgroundColor Black -ForegroundColor Yellow
+} catch {
+    Write-Warning "Failed to add $($r.firstname)$($r.LastName): $($_.Exception.Message)"
+        }
 }
-                                
-Write-Host "`nAction Complete: New Users added to OU! " -BackgroundColor Green -ForegroundColor Black         
-Write-Host "`nSummary:" -BackgroundColor Green -ForegroundColor Black
+
+Write-Host "`nSummary:" -ForegroundColor Yellow            
 Write-Host " OU Name  : $ouname" 
 Write-Host " CSV Path : $Filepath"
-Write-Host ("{0} out of {1} users successfully added" -f $ok, $total) 
+Write-Host ("{0} out of {1} users successfully added" -f $ok, $total) -BackgroundColor Green -ForegroundColor Black
+
 
